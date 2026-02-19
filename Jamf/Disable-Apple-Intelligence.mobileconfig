@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <!-- ============================================================ -->
+    <!-- Profile-level metadata                                        -->
+    <!-- ============================================================ -->
+    <key>PayloadDisplayName</key>
+    <string>Disable Apple Intelligence</string>
+
+    <key>PayloadDescription</key>
+    <string>Disables Apple Intelligence system-wide. Setting is enforced by MDM and cannot be changed by the user.</string>
+
+    <key>PayloadIdentifier</key>
+    <string>com.organization.disable-apple-intelligence</string>
+
+    <key>PayloadUUID</key>
+    <string>37703C8E-734B-4F15-B551-D1F931F3F1C3</string>
+
+    <key>PayloadType</key>
+    <string>Configuration</string>
+
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+
+    <!-- System scope = applies to the whole device, not just a user -->
+    <key>PayloadScope</key>
+    <string>System</string>
+
+    <!-- ============================================================ -->
+    <!-- Restriction payload                                           -->
+    <!-- ============================================================ -->
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+
+            <key>PayloadType</key>
+            <string>com.apple.applicationaccess</string>
+
+            <key>PayloadDisplayName</key>
+            <string>Restrictions</string>
+
+            <key>PayloadIdentifier</key>
+            <string>com.organization.disable-apple-intelligence.restrictions</string>
+
+            <key>PayloadUUID</key>
+            <string>9D7C8237-1ECC-4BDD-B2A1-21AA6CE42D72</string>
+
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+
+            <!-- Disable Apple Intelligence (master toggle) -->
+            <!-- Requires macOS Sequoia 15.1+ / iOS 18.1+  -->
+            <!-- Grays out the toggle in System Settings    -->
+            <key>allowAppleIntelligence</key>
+            <false/>
+
+        </dict>
+    </array>
+
+</dict>
+</plist>
