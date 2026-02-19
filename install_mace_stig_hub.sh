@@ -13,6 +13,12 @@ TMP_DIR=$(mktemp -d)
 DMG_PATH="$TMP_DIR/mace_stig_hub.dmg"
 MOUNT_POINT="$TMP_DIR/dmg_mount"
 
+# ---- Already Installed Check ----
+if [[ -d "$INSTALL_PATH/$APP_BUNDLE" ]]; then
+    echo "$APP_NAME is already installed. Nothing to do."
+    exit 0
+fi
+
 echo "Starting installation of $APP_NAME..."
 
 # ---- Download ----
