@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+
+#####################################################################################################
+##
+## Script to apply the Adobe Pro/Reader DISA STIG settings (V2R4)
+##
+## AUTHOR:      	cocopuff2u
+##
+## PURPOSE:     	Apply the Adobe Pro/Reader DISA STIG settings (V2R4) and enable CTK support
+##
+#####################################################################################################
+#
+#   History:
+#
+#  1.0 05/29/25 - Initial script creation for V2R3 STIG
+#
+#  1.1 11/21/25 - Updated for V2R4 STIG
+#
+#####################################################################################################
+
+#setting the paths to the files that will be created
+stigFiles=("/Library/Preferences/com.adobe.Acrobat.Pro.plist" "/Library/Preferences/com.adobe.reader.plist")
+
+for stigFile in "${stigFiles[@]}"; do
+    #checking if the file already exists
+    if [ -f "$stigFile" ]; then
+        echo "$stigFile already exists. overwriting."
+    fi
+    #creating the file
+    echo "Generating $stigFile"
+    DESTFILE_DIR=$(dirname "$stigFile")
+    mkdir -p "$DESTFILE_DIR"
+
+    #adding the plist content to the file.
+    cat <<EOM > "$stigFile"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>DC</key>
+	<dict>
+		<key>FeatureLockdown</key>
+		<dict>
+            <key>cWelcomeScreen</key>
+            <false/>
+			<key>bAcroSuppressUpsell</key>
+			<true/>
+			<key>bDisablePDFHandlerSwitching</key>
+			<true/>
+			<key>bDisableTrustedFolders</key>
+			<true/>
+			<key>bDisableTrustedSites</key>
+			<integer>1</integer>
+			<key>bEnableFlash</key>
+			<false/>
+			<key>bEnhancedSecurityInBrowser</key>
+			<true/>
+			<key>bEnhancedSecurityStandalone</key>
+			<true/>
+            <key>bEnableGentech</key>
+            <false/>
+			<key>bProtectedMode</key>
+			<true/>
+			<key>cCloud</key>
+			<dict>
+				<key>bAdobeSendPluginToggle</key>
+				<true/>
+			</dict>
+			<key>cDefaultLaunchURLPerms</key>
+			<dict>
+				<key>iURLPerms</key>
+				<true/>
+				<key>iUnknownURLPerms</key>
+				<integer>3</integer>
+			</dict>
+			<key>cServices</key>
+			<dict>
+				<key>bAdobeSendPluginToggle</key>
+				<true/>
+				<key>bToggleAdobeDocumentServices</key>
+				<true/>
+				<key>bToggleAdobeSign</key>
+				<true/>
+				<key>bTogglePrefsSync</key>
+				<true/>
+				<key>bToggleWebConnectors</key>
+				<true/>
+				<key>bUpdater</key>
+				<true/>
+			</dict>
+			<key>cSharePoint</key>
+			<dict>
+				<key>bDisableSharePointFeatures</key>
+				<true/>
+			</dict>
+			<key>cWebmailProfiles</key>
+			<dict>
+				<key>bDisableWebmail</key>
+				<true/>
+			</dict>
+			<key>iFileAttachmentPerms</key>
+			<true/>
+			<key>iProtectedView</key>
+			<integer>2</integer>
+		</dict>
+		<key>Installer</key>
+		<dict>
+			<key>DisableMaintenance</key>
+			<true/>
+		</dict>
+		<key>Security</key>
+		<dict>
+			<key>ASPKI</key>
+			<dict>
+				<key>1</key>
+				<dict>
+					<key>CTK</key>
+					<dict>
+						<key></key>
+						<integer>8</integer>
+					</dict>
+				</dict>
+			</dict>
+		</dict>
+	</dict>
+</dict>
+</plist>
+EOM
+done
+
+#kill cfprefsd to apply the changes
+killall cfprefsd
+
+exit 0
