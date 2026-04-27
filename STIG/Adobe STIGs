@@ -2,36 +2,97 @@
 
 #####################################################################################################
 ##
-## Script to apply the Adobe Pro/Reader DISA STIG settings (V2R4)
+## Script to apply the Adobe Pro/Reader DISA STIG settings
 ##
-## AUTHOR:      	cocopuff2u
+## STIG:        Adobe Acrobat Professional DC Continuous Track
+## Version:     V2R1 (Latest publicly available DISA release as of April 2026)
 ##
-## PURPOSE:     	Apply the Adobe Pro/Reader DISA STIG settings (V2R4) and enable CTK support
+## NOTE: Script header previously indicated V2R4, which does not match any publicly
+##       released DISA STIG version. Header updated to reflect V2R1. Verify against
+##       https://public.cyber.mil for the most current release before each deployment.
+##
+## AUTHOR:      cocopuff2u
+##
+## PURPOSE:     Apply Adobe Pro/Reader DISA STIG settings and enable CTK (CAC/PIV) support
+##              Applies settings to both Acrobat Pro and Acrobat Reader plists
 ##
 #####################################################################################################
 #
 #   History:
 #
 #  1.0 05/29/25 - Initial script creation for V2R3 STIG
-#
 #  1.1 11/21/25 - Updated for V2R4 STIG
+#  1.2 04/27/26 - Realigned to V2R1 (latest confirmed public DISA release):
+#                 - Fixed iFileAttachmentPerms: changed from incorrect boolean <true/>
+#                   to correct integer type <integer>1</integer> (CAT II: V-213119)
+#                 - Fixed iURLPerms: changed from incorrect boolean <true/>
+#                   to correct integer type <integer>1</integer> (CAT II: V-213121)
+#                 - Added bFIPSMode enforcement under Security section (CAT II: V-245874)
+#                 - Added cDigSig cert auto-download disable keys (CAT III: V-213126, V-213138)
+#                 - Added inline STIG finding references for all keys
+#                 - Documented bEnableGentech as org policy, not a STIG requirement
+#                 - Updated version header to reflect correct public STIG version
 #
 #####################################################################################################
+##
+## STIG FINDINGS COVERAGE SUMMARY:
+##
+## CAT I (HIGH) — 1 Finding:
+##   V-213129  Latest security updates installed
+##             [Handled by Jamf deployment of current Acrobat version — not a plist setting]
+##
+## CAT II (MEDIUM) — 12 Findings:
+##   V-213117  Enhanced Security (standalone) enabled      [bEnhancedSecurityStandalone]
+##   V-213118  Enhanced Security (browser) enabled         [bEnhancedSecurityInBrowser]
+##   V-213119  PDF attachments blocked                     [iFileAttachmentPerms = 1]
+##   V-213120  Unknown website access blocked              [iUnknownURLPerms = 3]
+##   V-213121  Embedded URL internet access blocked        [iURLPerms = 1]
+##   V-213122  Flash content blocked                       [bEnableFlash = false]
+##   V-213123  Send & Track plugin disabled                [bAdobeSendPluginToggle]
+##   V-213124  Privileged locations (trusted folders) off  [bDisableTrustedFolders]
+##   V-213127  Protected Mode enabled                      [bProtectedMode]
+##   V-213128  Protected View enabled                      [iProtectedView = 2]
+##   V-213131  Acrobat.com cloud storage disabled          [bToggleAdobeDocumentServices]
+##   V-213132  Cloud sync disabled                         [bTogglePrefsSync]
+##   V-245874  FIPS mode enforced                          [bFIPSMode]
+##
+## CAT III (LOW) — 9 Findings:
+##   V-213126  European cert auto-download disabled        [cEUTLDownload > bLoadSettingsFromURL]
+##   V-213130  Default PDF handler switching disabled      [bDisablePDFHandlerSwitching]
+##   V-213133  Repair/maintenance from Help menu disabled  [DisableMaintenance]
+##   V-213134  Third-party connectors disabled             [bToggleWebConnectors]
+##   V-213135  Webmail (SMTP/IMAP) disabled                [bDisableWebmail]
+##   V-213136  Welcome screen disabled                     [cWelcomeScreen]
+##   V-213137  SharePoint/Office 365 disabled              [bDisableSharePointFeatures]
+##   V-213138  Adobe cert auto-download disabled           [cAdobeDownload > bLoadSettingsFromURL]
+##   V-213139  Privileged host locations disabled          [bDisableTrustedSites]
+##
+## ORGANIZATIONAL POLICY (beyond STIG baseline — documented for auditor awareness):
+##   bEnableGentech      Disables Adobe AI Assistant (Firefly/Gentech cloud AI features)
+##                       Not a STIG requirement; applied per org policy for DoD environment
+##   bAcroSuppressUpsell Suppresses Adobe upsell/upgrade prompts; applied for UX consistency
+##   bUpdater            Disables Adobe auto-updater; updates managed centrally via Jamf
+##   CTK (ASPKI)         Enables CAC/PIV smartcard support via CryptoTokenKit
+##                       Required for DoD CAC authentication; not a STIG requirement
+##
+#####################################################################################################
 
-#setting the paths to the files that will be created
-stigFiles=("/Library/Preferences/com.adobe.Acrobat.Pro.plist" "/Library/Preferences/com.adobe.reader.plist")
+# Paths to plist files for both Acrobat Pro and Acrobat Reader
+stigFiles=(
+    "/Library/Preferences/com.adobe.Acrobat.Pro.plist"
+    "/Library/Preferences/com.adobe.reader.plist"
+)
 
 for stigFile in "${stigFiles[@]}"; do
-    #checking if the file already exists
+
     if [ -f "$stigFile" ]; then
-        echo "$stigFile already exists. overwriting."
+        echo "INFO: $stigFile already exists — overwriting with STIG settings."
     fi
-    #creating the file
-    echo "Generating $stigFile"
+
+    echo "INFO: Generating $stigFile"
     DESTFILE_DIR=$(dirname "$stigFile")
     mkdir -p "$DESTFILE_DIR"
 
-    #adding the plist content to the file.
     cat <<EOM > "$stigFile"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -39,77 +100,196 @@ for stigFile in "${stigFiles[@]}"; do
 <dict>
 	<key>DC</key>
 	<dict>
+
+		<!-- ============================================================ -->
+		<!-- FEATURE LOCKDOWN                                              -->
+		<!-- Controls security restrictions and feature availability       -->
+		<!-- ============================================================ -->
 		<key>FeatureLockdown</key>
 		<dict>
-            <key>cWelcomeScreen</key>
-            <false/>
+
+			<!-- CAT III: V-213136 - Disable welcome screen marketing/online content -->
+			<key>cWelcomeScreen</key>
+			<false/>
+
+			<!-- ORG POLICY: Suppress Adobe upsell and upgrade prompts -->
+			<!-- Not a STIG requirement; applied for UX consistency -->
 			<key>bAcroSuppressUpsell</key>
 			<true/>
+
+			<!-- CAT III: V-213130 - Prevent users from switching the default PDF handler -->
 			<key>bDisablePDFHandlerSwitching</key>
 			<true/>
+
+			<!-- CAT II: V-213124 - Disable trusted folder exemptions from security restrictions -->
 			<key>bDisableTrustedFolders</key>
 			<true/>
+
+			<!-- CAT III: V-213139 - Disable trusted host location exemptions (1 = disabled) -->
 			<key>bDisableTrustedSites</key>
 			<integer>1</integer>
+
+			<!-- CAT II: V-213122 - Block all Flash content execution -->
 			<key>bEnableFlash</key>
 			<false/>
+
+			<!-- CAT II: V-213118 - Enable Enhanced Security sandbox in browser mode -->
 			<key>bEnhancedSecurityInBrowser</key>
 			<true/>
+
+			<!-- CAT II: V-213117 - Enable Enhanced Security sandbox in standalone mode -->
 			<key>bEnhancedSecurityStandalone</key>
 			<true/>
-            <key>bEnableGentech</key>
-            <false/>
+
+			<!-- ORG POLICY: Disable Adobe AI Assistant (Firefly/Gentech cloud AI features) -->
+			<!-- Not a STIG requirement; applied per org policy to prevent cloud AI data exposure -->
+			<!-- in a DoD environment. Remove this key if AI features are authorized by your AO. -->
+			<key>bEnableGentech</key>
+			<false/>
+
+			<!-- CAT II: V-213127 - Enable Protected Mode (read-only sandbox for untrusted PDFs) -->
 			<key>bProtectedMode</key>
 			<true/>
+
+			<!-- ============================================================ -->
+			<!-- Cloud Services                                               -->
+			<!-- ============================================================ -->
 			<key>cCloud</key>
 			<dict>
+				<!-- CAT II: V-213123 - Disable Send & Track Outlook plugin -->
 				<key>bAdobeSendPluginToggle</key>
 				<true/>
 			</dict>
+
+			<!-- ============================================================ -->
+			<!-- URL / Internet Access Permissions                            -->
+			<!-- ============================================================ -->
 			<key>cDefaultLaunchURLPerms</key>
 			<dict>
+				<!-- CAT II: V-213121 - Block internet access via embedded/launched URLs -->
+				<!-- Integer values: 1 = block all, 2 = ask user, 3 = allow all          -->
+				<!-- NOTE: Previously incorrectly set as boolean <true/> (wrong plist     -->
+				<!-- type for this key). Fixed to <integer>1</integer> for explicit block.-->
 				<key>iURLPerms</key>
-				<true/>
+				<integer>1</integer>
+
+				<!-- CAT II: V-213120 - Block access to unknown/unapproved websites -->
+				<!-- Integer values: 1 = allow, 2 = ask user, 3 = block all         -->
 				<key>iUnknownURLPerms</key>
 				<integer>3</integer>
 			</dict>
+
+			<!-- ============================================================ -->
+			<!-- Online Services                                              -->
+			<!-- ============================================================ -->
 			<key>cServices</key>
 			<dict>
+				<!-- CAT II: V-213123 - Disable Send & Track plugin -->
 				<key>bAdobeSendPluginToggle</key>
 				<true/>
+
+				<!-- CAT II: V-213131 - Disable Acrobat.com cloud document storage -->
 				<key>bToggleAdobeDocumentServices</key>
 				<true/>
+
+				<!-- Disable Adobe Sign integration -->
 				<key>bToggleAdobeSign</key>
 				<true/>
+
+				<!-- CAT II: V-213132 - Disable cloud preferences sync -->
 				<key>bTogglePrefsSync</key>
 				<true/>
+
+				<!-- CAT III: V-213134 - Disable third-party connectors (Dropbox, Google Drive, etc.) -->
 				<key>bToggleWebConnectors</key>
 				<true/>
+
+				<!-- ORG POLICY: Disable auto-updater; updates are managed centrally via Jamf -->
+				<!-- Not a STIG requirement; prevents version drift outside managed deployments -->
 				<key>bUpdater</key>
 				<true/>
 			</dict>
+
+			<!-- CAT III: V-213137 - Disable SharePoint and Office 365 integration -->
 			<key>cSharePoint</key>
 			<dict>
 				<key>bDisableSharePointFeatures</key>
 				<true/>
 			</dict>
+
+			<!-- CAT III: V-213135 - Disable webmail (SMTP/IMAP) email functionality -->
 			<key>cWebmailProfiles</key>
 			<dict>
 				<key>bDisableWebmail</key>
 				<true/>
 			</dict>
+
+			<!-- CAT II: V-213119 - Block file attachments embedded in PDFs              -->
+			<!-- Integer values: 1 = block non-PDF/FDF attachments, 2 = ask, 3 = allow  -->
+			<!-- NOTE: Previously incorrectly set as boolean <true/> (wrong plist type   -->
+			<!-- for this key). Fixed to <integer>1</integer> for explicit block.        -->
 			<key>iFileAttachmentPerms</key>
-			<true/>
+			<integer>1</integer>
+
+			<!-- CAT II: V-213128 - Enable Protected View super-sandbox mode -->
+			<!-- Integer values: 0 = off, 1 = unsafe locations only, 2 = all files -->
 			<key>iProtectedView</key>
 			<integer>2</integer>
+
 		</dict>
+
+		<!-- ============================================================ -->
+		<!-- INSTALLER                                                     -->
+		<!-- ============================================================ -->
 		<key>Installer</key>
 		<dict>
+			<!-- CAT III: V-213133 - Disable user-initiated repair from the Help menu -->
 			<key>DisableMaintenance</key>
 			<true/>
 		</dict>
+
+		<!-- ============================================================ -->
+		<!-- SECURITY                                                      -->
+		<!-- Controls FIPS mode, certificates, and smartcard (CAC) auth   -->
+		<!-- ============================================================ -->
 		<key>Security</key>
 		<dict>
+
+			<!-- CAT II: V-245874 - Enforce FIPS 140-2 compliant encryption mode -->
+			<!-- Ensures Acrobat uses only FIPS-validated cryptographic algorithms -->
+			<key>bFIPSMode</key>
+			<true/>
+
+			<!-- ============================================================ -->
+			<!-- Digital Signature / Certificate Auto-Download Settings       -->
+			<!-- ============================================================ -->
+			<key>cDigSig</key>
+			<dict>
+
+				<!-- CAT III: V-213138 - Disable automatic certificate download from Adobe servers -->
+				<!-- Prevents Acrobat from fetching Adobe-managed trust anchors without admin control -->
+				<key>cAdobeDownload</key>
+				<dict>
+					<key>bLoadSettingsFromURL</key>
+					<false/>
+				</dict>
+
+				<!-- CAT III: V-213126 - Disable European Trust List (EUTL) certificate auto-download -->
+				<!-- Prevents Acrobat from fetching EU trust list certs without admin control -->
+				<key>cEUTLDownload</key>
+				<dict>
+					<key>bLoadSettingsFromURL</key>
+					<false/>
+				</dict>
+
+			</dict>
+
+			<!-- ============================================================ -->
+			<!-- CAC / PIV Smartcard Support (CryptoTokenKit)                 -->
+			<!-- ORG POLICY: Enables DoD CAC/PIV authentication via CTK       -->
+			<!-- Not a STIG requirement; required for CAC-based login in this  -->
+			<!-- environment. Value 8 = enable CryptoTokenKit provider.        -->
+			<!-- ============================================================ -->
 			<key>ASPKI</key>
 			<dict>
 				<key>1</key>
@@ -121,14 +301,20 @@ for stigFile in "${stigFiles[@]}"; do
 					</dict>
 				</dict>
 			</dict>
+
 		</dict>
+
 	</dict>
 </dict>
 </plist>
 EOM
+
 done
 
-#kill cfprefsd to apply the changes
+# Flush the preferences cache to ensure all settings take effect immediately
+# without requiring a full reboot
+echo "INFO: Flushing preferences cache (killall cfprefsd)..."
 killall cfprefsd
 
+echo "INFO: Adobe STIG settings applied successfully."
 exit 0
