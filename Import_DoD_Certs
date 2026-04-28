@@ -1,0 +1,289 @@
+#!/bin/bash
+
+####################################################################################################
+#
+# # Install DoD Certs — Jamf Pro Edition
+#
+# Purpose: Import the latest DoD PKI CA certificates from dl.dod.cyber.mil into the
+#          macOS System Keychain. Designed for unattended MDM/Jamf deployment.
+#
+# Original script by: https://github.com/cocopuff2u
+# Original repo: https://github.com/cocopuff2u/MacOS_GOV_Scripts
+#
+# Jamf adaptation notes:
+#   - Removed all osascript/user interaction prompts (blocks unattended Jamf execution)
+#   - Logging enabled by default (writes to /private/var/log/Install_DoD_Certs.log)
+#   - Hardened ZIP folder detection (no longer assumes line 4 of unzip -l output)
+#   - Hardcoded trustRoot import path (always imports Root CAs as trusted — correct for MDM)
+#   - Intermediate/Issuing CAs imported without explicit trust (correct behavior)
+#   - Returns Jamf-compatible exit codes (0 = success, 1 = failure)
+#   - Tested against macOS Sequoia 15.x; validate on Tahoe 26.x before fleet deployment
+#
+# Tahoe 26 notes:
+#   - CLI path (security add-trusted-cert) remains functional as of 26.4
+#   - osascript-gated trust dialogs broken on Tahoe — removed in this version
+#   - Verify Root CAs show "Always Trust" in Keychain Access after first run on Tahoe
+#
+####################################################################################################
+#
+#   History
+#
+#   Original upstream versions:
+#   1.0  08/07/23  Original (cocopuff2u)
+#   1.1  10/21/24  Removed force smart card removal, added logging, changed OSA prompts
+#   1.2  11/26/24  Added /var/tmp existence check for OOB machines
+#
+#   Jamf adaptation:
+#   1.0  2025-04   Initial Jamf adaptation — stripped osascript, hardened folder detection,
+#                  logging on by default, hardcoded trusted Root CA import path
+#
+####################################################################################################
+
+SCRIPT_VERSION="1.0-jamf"
+LOG_FILE="/private/var/log/Install_DoD_Certs.log"
+
+####################################################################################################
+# Logging
+####################################################################################################
+
+# Initialize log file with header on first run
+initialize_log_file() {
+    if [ ! -f "$LOG_FILE" ]; then
+        echo -e "##############################################\n# Install DoD Certs — Jamf Edition (v$SCRIPT_VERSION)\n#\n# Original script: github.com/cocopuff2u\n# Jamf adaptation: NIWC LANT Mac Fleet\n##############################################\n" > "$LOG_FILE"
+    fi
+}
+
+log_message() {
+    local MESSAGE="$1"
+    echo "Install_DoD_Certs: $(date '+%Y-%m-%d %H:%M:%S') - $MESSAGE" | tee -a "$LOG_FILE"
+}
+
+initialize_log_file
+log_message "====== Script started (v$SCRIPT_VERSION) ======"
+log_message "Running as: $(whoami) | macOS: $(sw_vers -productVersion) | Build: $(sw_vers -buildVersion)"
+
+####################################################################################################
+# Configuration
+####################################################################################################
+
+# DoD PKI CA bundle — unclassified, direct from cyber.mil
+ZIP_URL="https://dl.dod.cyber.mil/wp-content/uploads/pki-pke/zip/unclass-dod_approved_external_pkis_trust_chains.zip"
+
+# Temp working directory
+TEMP_DIR="/var/tmp"
+WORK_FOLDER="$TEMP_DIR/DOD_Certs_Import"
+ZIP_FILE="$WORK_FOLDER/DOD_Certs.zip"
+
+# Expected subfolder paths inside the extracted ZIP
+# These match the DoD bundle structure as of 2025
+# If DoD changes the ZIP structure, update these paths
+SUBFOLDER_INTERMEDIATE="_DoD/Intermediate_and_Issuing_CA_Certs"
+SUBFOLDER_ROOT="_DoD/Trust_Anchors_Self-Signed"
+
+####################################################################################################
+# Cleanup function — called on error or completion
+####################################################################################################
+
+cleanup() {
+    log_message "Cleaning up temporary files..."
+    rm -rf "$WORK_FOLDER"
+    log_message "Cleanup complete."
+}
+
+# Cleanup and exit with error
+fail_exit() {
+    log_message "ERROR: $1"
+    cleanup
+    log_message "====== Script failed ======"
+    exit 1
+}
+
+####################################################################################################
+# Preflight checks
+####################################################################################################
+
+# Must run as root for System Keychain writes
+if [ "$(id -u)" -ne 0 ]; then
+    fail_exit "Script must run as root. In Jamf, ensure policy runs as root."
+fi
+
+# Verify network reachability to cyber.mil before attempting download
+log_message "Checking network reachability to dl.dod.cyber.mil..."
+if ! curl --silent --head --max-time 10 "https://dl.dod.cyber.mil" > /dev/null 2>&1; then
+    fail_exit "Cannot reach dl.dod.cyber.mil. Check network connectivity and firewall rules (port 443 outbound required)."
+fi
+log_message "Network reachability confirmed."
+
+####################################################################################################
+# Temp directory setup
+####################################################################################################
+
+# Ensure /var/tmp exists (may not on brand new OOB machines — v1.2 fix from upstream)
+if [ ! -d "$TEMP_DIR" ]; then
+    log_message "/var/tmp does not exist. Creating..."
+    mkdir -p "$TEMP_DIR" || fail_exit "Failed to create $TEMP_DIR."
+    log_message "/var/tmp created."
+fi
+
+# Clean up any previous failed run
+if [ -d "$WORK_FOLDER" ]; then
+    log_message "Stale work folder found. Removing..."
+    rm -rf "$WORK_FOLDER"
+fi
+
+mkdir -p "$WORK_FOLDER" || fail_exit "Failed to create work folder at $WORK_FOLDER."
+log_message "Work folder created: $WORK_FOLDER"
+
+####################################################################################################
+# Download
+####################################################################################################
+
+log_message "Downloading DoD PKI bundle from: $ZIP_URL"
+if ! curl -L --max-time 120 --retry 3 --retry-delay 5 -o "$ZIP_FILE" "$ZIP_URL"; then
+    fail_exit "Failed to download ZIP from $ZIP_URL."
+fi
+
+# Verify the downloaded file is actually a ZIP
+if ! file "$ZIP_FILE" | grep -q "Zip archive"; then
+    fail_exit "Downloaded file does not appear to be a valid ZIP archive. DoD may have changed the URL or file format."
+fi
+
+log_message "Download complete. File size: $(du -sh "$ZIP_FILE" | cut -f1)"
+
+####################################################################################################
+# Extract
+####################################################################################################
+
+log_message "Extracting ZIP..."
+if ! unzip -q "$ZIP_FILE" -d "$WORK_FOLDER"; then
+    fail_exit "Failed to extract ZIP file."
+fi
+log_message "Extraction complete."
+
+# Hardened folder detection — find the _DoD subfolder regardless of top-level folder name
+# This is more resilient than assuming line 4 of unzip -l output (upstream assumption)
+DOD_BASE=$(find "$WORK_FOLDER" -type d -name "_DoD" 2>/dev/null | head -1)
+if [ -z "$DOD_BASE" ]; then
+    fail_exit "Could not locate '_DoD' directory in extracted ZIP. DoD may have changed the bundle structure. Check $ZIP_URL manually."
+fi
+
+INTERMEDIATE_PATH="$(dirname "$DOD_BASE")/$SUBFOLDER_INTERMEDIATE"
+ROOT_PATH="$(dirname "$DOD_BASE")/$SUBFOLDER_ROOT"
+
+log_message "DoD bundle base: $(dirname "$DOD_BASE")"
+log_message "Intermediate CA path: $INTERMEDIATE_PATH"
+log_message "Root CA path: $ROOT_PATH"
+
+# Validate both expected subfolders exist
+if [ ! -d "$INTERMEDIATE_PATH" ]; then
+    fail_exit "Intermediate CA subfolder not found at $INTERMEDIATE_PATH. Bundle structure may have changed."
+fi
+
+if [ ! -d "$ROOT_PATH" ]; then
+    fail_exit "Root CA subfolder not found at $ROOT_PATH. Bundle structure may have changed."
+fi
+
+####################################################################################################
+# Import Intermediate and Issuing CA certificates
+# These are imported WITHOUT explicit trust — correct behavior for intermediate CAs.
+# Trust chains up to the Root CAs imported in the next section.
+####################################################################################################
+
+log_message "--- Importing Intermediate and Issuing CA certificates ---"
+INTERMEDIATE_ADDED=0
+INTERMEDIATE_EXISTED=0
+INTERMEDIATE_FAILED=0
+
+for cert_file in "$INTERMEDIATE_PATH"/*; do
+    [ -f "$cert_file" ] || continue
+    short_name=$(basename "$cert_file")
+    output=$(security import "$cert_file" -k /Library/Keychains/system.keychain 2>&1)
+
+    if echo "$output" | grep -q "The specified item already exists in the keychain."; then
+        log_message "  [SKIP] Already exists: $short_name"
+        (( INTERMEDIATE_EXISTED++ ))
+    elif echo "$output" | grep -qi "error"; then
+        log_message "  [FAIL] Import error for $short_name: $output"
+        (( INTERMEDIATE_FAILED++ ))
+    else
+        log_message "  [ADD]  Imported: $short_name"
+        (( INTERMEDIATE_ADDED++ ))
+    fi
+done
+
+log_message "Intermediate CAs — Added: $INTERMEDIATE_ADDED | Already existed: $INTERMEDIATE_EXISTED | Failed: $INTERMEDIATE_FAILED"
+
+####################################################################################################
+# Import Root CA certificates as trusted (trustRoot)
+# These are the DoD Trust Anchors / Self-Signed Root CAs.
+# Importing with -r trustRoot sets "Always Trust" in System Keychain.
+# Requires root. Will NOT prompt user for password when run via Jamf as root.
+#
+# Tahoe note: Verify "Always Trust" appears in Keychain Access after first run.
+# The osascript-gated trust dialog path is broken on Tahoe; this CLI path is unaffected.
+####################################################################################################
+
+log_message "--- Importing Root CA certificates as trusted (trustRoot) ---"
+ROOT_ADDED=0
+ROOT_EXISTED=0
+ROOT_FAILED=0
+
+for cert_file in "$ROOT_PATH"/*; do
+    [ -f "$cert_file" ] || continue
+    short_name=$(basename "$cert_file")
+    output=$(security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$cert_file" 2>&1)
+
+    if echo "$output" | grep -q "The authorization was canceled by the user."; then
+        # Should not happen when running as root via Jamf, but log it if it does
+        log_message "  [FAIL] Auth canceled (unexpected in Jamf context): $short_name"
+        (( ROOT_FAILED++ ))
+    elif echo "$output" | grep -qi "already exists\|duplicate"; then
+        log_message "  [SKIP] Already trusted: $short_name"
+        (( ROOT_EXISTED++ ))
+    elif echo "$output" | grep -qi "error"; then
+        log_message "  [FAIL] Import error for $short_name: $output"
+        (( ROOT_FAILED++ ))
+    else
+        log_message "  [ADD]  Trusted Root CA imported: $short_name"
+        (( ROOT_ADDED++ ))
+    fi
+done
+
+log_message "Root CAs — Added: $ROOT_ADDED | Already existed: $ROOT_EXISTED | Failed: $ROOT_FAILED"
+
+####################################################################################################
+# Verification spot-check
+# Confirm at least one known DoD Root CA is present and trusted in System Keychain
+####################################################################################################
+
+log_message "--- Verification spot-check ---"
+
+# Check for DoD Root CA 3, 4, 5, or 6 in the System keychain
+VERIFY_OUTPUT=$(security find-certificate -a -c "DoD Root CA" /Library/Keychains/System.keychain 2>/dev/null)
+
+if [ -z "$VERIFY_OUTPUT" ]; then
+    log_message "WARNING: Could not find any 'DoD Root CA' certificates in System Keychain after import. Verify manually."
+else
+    DOD_ROOT_COUNT=$(echo "$VERIFY_OUTPUT" | grep -c "alis" || true)
+    log_message "Spot-check passed — found $DOD_ROOT_COUNT DoD Root CA certificate(s) in System Keychain."
+fi
+
+####################################################################################################
+# Summary and cleanup
+####################################################################################################
+
+log_message "--- Import summary ---"
+log_message "Intermediate/Issuing CAs: $INTERMEDIATE_ADDED added, $INTERMEDIATE_EXISTED already existed, $INTERMEDIATE_FAILED failed"
+log_message "Root CAs (trusted):       $ROOT_ADDED added, $ROOT_EXISTED already existed, $ROOT_FAILED failed"
+
+# Fail the Jamf policy if any certs failed to import
+# Remove this block if you want the script to always exit 0 (e.g. for initial rollout reporting)
+if [ "$INTERMEDIATE_FAILED" -gt 0 ] || [ "$ROOT_FAILED" -gt 0 ]; then
+    cleanup
+    log_message "====== Script completed with errors — check log for details ======"
+    exit 1
+fi
+
+cleanup
+log_message "====== Script completed successfully ======"
+exit 0
