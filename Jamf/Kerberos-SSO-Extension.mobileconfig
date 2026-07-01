@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Kerberos Single Sign-On Extension (Apple built-in) configuration profile.
+
+  Purpose: keep each Mac's LOCAL account password in sync with the AD password
+  (syncLocalPassword), so smart-card/CAC users whose local password drifts from
+  their rotated AD password stop getting locked out of keychain / FileVault /
+  MDM-profile-approval and no longer need password resets.
+
+  BEFORE DEPLOYING:
+    * Replace AD.EXAMPLE.MIL with your AD Kerberos realm (UPPERCASE).
+    * Replace ad.example.mil / .ad.example.mil with your AD DNS domain(s).
+    * Regenerate both PayloadUUID values (uuidgen) if you want unique IDs.
+    * Validate the keys against your macOS build in iMazing Profile Editor or
+      Apple Configurator (key availability is macOS-version-dependent).
+
+  DEPLOY VIA JAMF:
+    Computers -> Configuration Profiles -> Upload this .mobileconfig, scope to a
+    Smart Group (pilot first). No policy/agent needed - the extension is built
+    into macOS. AD binding is NOT required; Macs only need line-of-sight to the
+    AD KDCs (Kerberos 88, LDAP 389/636).
+
+  VERIFY ON A PILOT MAC:
+    app-sso -l
+    app-sso -i com.apple.AppleSSOKerberos.KerberosExtension
+    klist
+    dscl . -authonly "$(stat -f %Su /dev/console)" <password>
+
+  NOTE: This syncs the local <-> AD password. It does NOT turn the CAC itself
+  into the Kerberos credential (PKINIT); that remains the native smart-card
+  (CryptoTokenKit / pam_smartcard) path and depends on AD KDC PKINIT support.
+-->
+<plist version="1.0">
+<dict>
+    <key>PayloadType</key>            <string>Configuration</string>
+    <key>PayloadVersion</key>         <integer>1</integer>
+    <key>PayloadScope</key>           <string>System</string>
+    <key>PayloadDisplayName</key>     <string>Kerberos Single Sign-On Extension</string>
+    <key>PayloadIdentifier</key>      <string>mil.example.mac.kerberos-sso</string>
+    <key>PayloadUUID</key>            <string>BE5773AA-C2A3-4158-90EC-8FC83F46E70A</string>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>PayloadType</key>        <string>com.apple.extensiblesso</string>
+            <key>PayloadVersion</key>     <integer>1</integer>
+            <key>PayloadIdentifier</key>  <string>mil.example.mac.kerberos-sso.extension</string>
+            <key>PayloadUUID</key>        <string>F579DAB4-97D2-48D6-A147-9B295B6F44FA</string>
+            <key>PayloadDisplayName</key> <string>Kerberos SSO Extension Settings</string>
+
+            <!-- Identifies Apple's built-in Kerberos extension -->
+            <key>ExtensionIdentifier</key>
+            <string>com.apple.AppleSSOKerberos.KerberosExtension</string>
+            <key>Type</key>
+            <string>Credential</string>
+
+            <!-- Your AD Kerberos realm (UPPERCASE) -->
+            <key>Realm</key>
+            <string>AD.EXAMPLE.MIL</string>
+
+            <!-- Domains that should route through the extension -->
+            <key>Hosts</key>
+            <array>
+                <string>ad.example.mil</string>
+                <string>.ad.example.mil</string>
+            </array>
+
+            <!-- ── The keys that matter for the password-sync effort ── -->
+            <key>isDefaultRealm</key>
+            <true/>
+
+            <!-- Write the AD password down to the local account so
+                 local <-> AD stay in sync (kills the drift behind resets) -->
+            <key>syncLocalPassword</key>
+            <true/>
+
+            <!-- Nudge users before AD expiry so the change happens in-band -->
+            <key>pwNotificationDays</key>
+            <integer>14</integer>
+
+            <!-- Let users change their AD password from the menu item -->
+            <key>allowPasswordChange</key>
+            <true/>
+
+            <!-- Works on Macs that are NOT AD-bound -->
+            <key>requireUserPresence</key>
+            <false/>
+
+            <key>helpText</key>
+            <string>Sign in with your AD/CAC credentials to keep your Mac password in sync.</string>
+        </dict>
+    </array>
+</dict>
+</plist>
