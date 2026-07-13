@@ -19,8 +19,16 @@ without anyone chasing it.
 
 | File | Role |
 |------|------|
-| `update_mde_definitions.sh` | Jamf **policy** script. Triggers `mdatp definitions update`, polls until `definitions_status` is `up_to_date` (or times out), then runs `jamf recon`. |
+| `update_mde_definitions.sh` | Jamf **policy** script (silent). Triggers `mdatp definitions update`, polls until `definitions_status` is `up_to_date` (or times out), then runs `jamf recon`. Best for scheduled, hands-off remediation. |
+| `update_mde_definitions_gui.sh` | Same logic with a **swiftDialog progress window** for **Self Service**. Live-updates the definitions version/status and phones home when done. swiftDialog is auto-installed if missing (Team ID verified). |
 | `mde_definitions_status_ea.sh` | Jamf **Extension Attribute** script. Records Defender's current definitions status into inventory. This is what makes "am I up to date?" visible and Smart-Group-able. |
+
+### Which script to use
+
+- **Scheduled/automated fleet remediation** → `update_mde_definitions.sh` (silent), scoped to the stale Smart Group on a Recurring Check-in trigger.
+- **A Self Service "Update Antivirus Definitions" button** users can click with visible progress → `update_mde_definitions_gui.sh`. Requires [swiftDialog](https://github.com/swiftDialog/swiftDialog) (auto-installed).
+
+Both end the same way: `jamf recon`, so the Extension Attribute / Smart Group reflect the new state.
 
 ## Setup (the closed loop)
 
