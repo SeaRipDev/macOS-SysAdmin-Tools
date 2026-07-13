@@ -22,6 +22,7 @@ without anyone chasing it.
 | `update_mde_definitions.sh` | Jamf **policy** script (silent). Triggers `mdatp definitions update`, polls until `definitions_status` is `up_to_date` (or times out), then runs `jamf recon`. Best for scheduled, hands-off remediation. |
 | `update_mde_definitions_gui.sh` | Same logic with a **swiftDialog progress window** for **Self Service**. Live-updates the definitions version/status and phones home when done. swiftDialog is auto-installed if missing (Team ID verified). |
 | `mde_definitions_status_ea.sh` | Jamf **Extension Attribute** script. Records Defender's current definitions status into inventory. This is what makes "am I up to date?" visible and Smart-Group-able. |
+| `validate_mdatp_fields.sh` | **Read-only** pre-deployment diagnostic. Run once on a test Mac (`sudo zsh validate_mdatp_fields.sh`) to dump the exact `mdatp health` field names/values the scripts rely on and confirm `definitions_status` returns `up_to_date`. Makes no changes. |
 
 ### Which script to use
 
@@ -49,10 +50,11 @@ follow-up.
 
 ## Before you trust it at scale
 
-- **Validate the `mdatp` fields on your build.** Run `mdatp health` on a test
-  Mac and confirm `definitions_status` returns `up_to_date` when current. If your
-  build reports a different value, adjust the two status comparisons in
-  `update_mde_definitions.sh`.
+- **Validate the `mdatp` fields on your build.** Run `validate_mdatp_fields.sh`
+  (read-only) on a test Mac and confirm `definitions_status` returns
+  `up_to_date` when current. If your build reports a different value, adjust the
+  status comparisons in `update_mde_definitions.sh` and
+  `update_mde_definitions_gui.sh`.
 - **Running `mdatp` as root.** Jamf runs scripts and EAs as root, and `mdatp`
   generally behaves as root. If your build rejects a command as root, run just
   that line as the console user via
